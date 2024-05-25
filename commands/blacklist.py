@@ -4,6 +4,8 @@ import discord
 
 blacklist_path = os.path.join('data', 'blacklist.json')
 admin_path = os.path.join('data', 'admin.json')
+top_path = os.path.join('data', 'top.json')
+users_dir = os.path.join('data', 'users')
 
 def load_blacklist():
     if not os.path.exists(blacklist_path):
@@ -61,9 +63,22 @@ async def remove_from_blacklist(message):
             blacklisted_users = load_blacklist()
             if username_to_remove in blacklisted_users:
                 blacklisted_users.remove(username_to_remove)
+                
+                if os.path.exists(top_path):
+                    with open(top_path, 'r') as file:
+                        top_users = json.load(file)
+                    if username_to_remove in top_users:
+                        del top_users[username_to_remove]
+                        with open(top_path, 'w') as file:
+                            json.dump(top_users, file, indent=4)
+                
+                user_file_path = os.path.join(users_dir, f'{username_to_remove}.json')
+                if os.path.exists(user_file_path):
+                    os.remove(user_file_path)
+
                 with open(blacklist_path, 'w') as file:
                     json.dump(blacklisted_users, file)
-                embed = discord.Embed(title="Success", description=f"User {username_to_remove} removed from the blacklist.", color=discord.Color.green())
+                embed = discord.Embed(title="Success", description=f"User {username_to_remove} removed from the blacklist and their data has been deleted.", color=discord.Color.green())
                 await message.channel.send(embed=embed)
             else:
                 embed = discord.Embed(title="Info", description=f"User {username_to_remove} not found in the blacklist.", color=discord.Color.red())
