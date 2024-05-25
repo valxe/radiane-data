@@ -1,5 +1,8 @@
 [
     {
+        "user_pfp": "https://picsum.photos/200"
+    },
+    {
         "message_time": "2005-05-30 00:00:00",
         "content": "Hello, World!"
     }
