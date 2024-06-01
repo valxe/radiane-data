@@ -1,18 +1,35 @@
 import os
-import json
 import discord
+import json
 
 users_dir = os.path.join('data', 'users')
 top_path = os.path.join('data', 'top.json')
+admin_path = os.path.join('data', 'admin.json')
 
-async def remove_user(ctx, username):
+def load_admins():
+    if not os.path.exists(admin_path):
+        return []
+    with open(admin_path, 'r') as file:
+        return json.load(file)
+
+async def check_admin(user_id):
+    admins = load_admins()
+    return str(user_id) in admins
+
+async def remove_user(message, username):
     user_file_path = os.path.join(users_dir, f'{username}.json')
 
     try:
+        if not await check_admin(message.author.id):
+            embed = discord.Embed(title="Error", description="You don't have permission to perform this action.", color=discord.Color.red())
+            await message.channel.send(embed=embed)
+            return
+
         if os.path.exists(user_file_path):
             os.remove(user_file_path)
         else:
-            await ctx.send(f"User {username} does not exist.")
+            embed = discord.Embed(title="Error", description=f"User {username} does not exist.", color=discord.Color.red())
+            await message.channel.send(embed=embed)
             return
 
         if os.path.exists(top_path):
@@ -24,9 +41,12 @@ async def remove_user(ctx, username):
                     file.truncate()
                     json.dump(data, file, indent=4)
                 else:
-                    await ctx.send(f"User {username} not found in top data.")
+                    embed = discord.Embed(title="Error", description=f"User {username} not found in top data.", color=discord.Color.red())
+                    await message.channel.send(embed=embed)
                     return
 
-        await ctx.send(f"User {username} has been removed.")
+        embed = discord.Embed(title="Remove User", description=f"User {username} has been removed.", color=discord.Color.red())
+        await message.channel.send(embed=embed)
     except Exception as e:
-        await ctx.send(f"An error occurred while removing user {username}: {e}")
+        embed = discord.Embed(title="Error", description=f"An error occurred while removing user {username}: {e}", color=discord.Color.red())
+        await message.channel.send(embed=embed)
