@@ -2,15 +2,17 @@ import discord
 import asyncio
 import json
 import os
+import logging
 from commands.top import send_top
 from commands.total import send_total
 from commands.blacklist import send_blacklist, add_to_blacklist, remove_from_blacklist
 from commands.user_info import get_user_info
 from commands.help import send_help_embed
 from commands.remove import remove_user
+from commands.random import send_random_user_info
 
-MAX_CHUNK_SIZE_MB = 24
-CHUNK_SIZE = MAX_CHUNK_SIZE_MB * 1024 * 1024
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 secret_path = os.path.join('data', 'secret.json')
 blacklist_path = os.path.join('data', 'blacklist.json')
@@ -52,11 +54,21 @@ class DataCache:
         return {}
 
     def save_user_message(self, user_name, message):
-        if user_name not in self.user_data:
-            self.user_data[user_name] = []
+        user_file = os.path.join(users_dir, f'{user_name}.json')
 
-        user_pfp = str(message.author.avatar.url) if not self.user_data[user_name] else None
-        if user_pfp:
+        if os.path.exists(user_file):
+            with open(user_file, 'r') as file:
+                existing_data = json.load(file)
+        else:
+            existing_data = []
+
+        if user_name not in self.user_data:
+            self.user_data[user_name] = existing_data
+
+        user_pfp_saved = any('user_pfp' in msg for msg in self.user_data[user_name])
+
+        if not user_pfp_saved:
+            user_pfp = str(message.author.avatar.url) if message.author.avatar else None
             self.user_data[user_name].insert(0, {"user_pfp": user_pfp})
 
         self.user_data[user_name].append({
@@ -77,10 +89,12 @@ class DataCache:
             if os.path.exists(user_file):
                 with open(user_file, 'r') as file:
                     existing_data = json.load(file)
-                messages = existing_data + messages
+                combined_data = existing_data + [msg for msg in messages if msg not in existing_data]
+            else:
+                combined_data = messages
 
             with open(user_file, 'w') as file:
-                json.dump(messages, file, indent=4)
+                json.dump(combined_data, file, indent=4)
         
         with open(top_path, 'w') as file:
             json.dump(self.top_users, file, indent=4)
@@ -116,13 +130,21 @@ class MyClient(discord.Client):
     async def on_ready(self):
         total_messages_logged = read_total()
         total_users = count_users()
-        print(f'Logged in as {self.user}')
-        print(f'Total messages logged: {total_messages_logged}')
-        print(f'Total users: {total_users}')
+        logger.info(f'Logged in as {self.user}')
+        logger.info(f'Total messages logged: {total_messages_logged}')
+        logger.info(f'Total users: {total_users}')
         await self.change_presence(status=discord.Status.dnd)
 
-        self.loop.create_task(self.update_presence_message())
+        self.loop.create_task(self.start_update_presence())
         self.loop.create_task(periodic_save())
+
+    async def start_update_presence(self):
+        while True:
+            try:
+                await self.update_presence_message()
+            except Exception as e:
+                logger.error(f"Error updating presence: {e}")
+                await asyncio.sleep(5)
 
     async def update_presence_message(self):
         while True:
@@ -134,38 +156,44 @@ class MyClient(discord.Client):
         if message.author == self.user:
             return
 
-        if message.content.startswith('!'):
-            await self.handle_command(message)
+        try:
+            if message.content.startswith('!'):
+                await self.handle_command(message)
 
-        blacklisted_users = load_blacklist()
-        author_username = f"{message.author.name}#{message.author.discriminator}"
-        if message.author.name in blacklisted_users or author_username in blacklisted_users:
-            return
-        
-        print(f'({message.created_at.strftime("%Y-%m-%d %H:%M:%S")}) {message.author.name}: {message.content}')
-        
-        data_cache.save_user_message(message.author.name, message)
+            blacklisted_users = load_blacklist()
+            author_username = f"{message.author.name}#{message.author.discriminator}"
+            if message.author.name in blacklisted_users or author_username in blacklisted_users:
+                return
+            
+            data_cache.save_user_message(message.author.name, message)
+        except Exception as e:
+            logger.error(f"Error processing message from {message.author.name}: {e}")
 
     async def handle_command(self, message):
         command = message.content.lower().split(' ')[0]
-        if command == '!help':
-            await send_help_embed(message.channel)
-        elif command.startswith('!user'):
-            username = message.content.split(' ', 1)[1]
-            await get_user_info(message.channel, username)
-        elif command == '!top':
-            await send_top(message.channel)
-        elif command == '!total':
-            await send_total(message.channel)
-        elif command == '!bl':
-            await send_blacklist(message.channel)
-        elif command.startswith('!bladd'):
-            await add_to_blacklist(message)
-        elif command.startswith('!blremove'):
-            await remove_from_blacklist(message)
-        elif command.startswith('!remove'):
-            username = message.content.split(' ', 1)[1]
-            await remove_user(message.channel, username)
+        try:
+            if command == '!help':
+                await send_help_embed(message.channel)
+            elif command.startswith('!user'):
+                username = message.content.split(' ', 1)[1]
+                await get_user_info(message.channel, username)
+            elif command == '!top':
+                await send_top(message.channel)
+            elif command == '!total':
+                await send_total(message.channel)
+            elif command == '!bl':
+                await send_blacklist(message.channel)
+            elif command.startswith('!bladd'):
+                await add_to_blacklist(message)
+            elif command.startswith('!blremove'):
+                await remove_from_blacklist(message)
+            elif command.startswith('!remove'):
+                username = message.content.split(' ', 1)[1]
+                await remove_user(message, username)
+            elif command == '!random':
+                await send_random_user_info(message.channel)
+        except Exception as e:
+            logger.error(f"Error handling command {command}: {e}")
 
 if __name__ == "__main__":
     client = MyClient(intents=intents)
