@@ -5,17 +5,29 @@ from datetime import datetime, date
 
 users_dir = os.path.join('data', 'users')
 top_path = os.path.join('data', 'top.json')
+blacklist_path = os.path.join('data', 'blacklist.json')
 
-async def get_user_info(ctx, username: str):
+with open(blacklist_path, 'r', encoding='utf-8') as blacklist_file:
+    blacklist = json.load(blacklist_file)
+
+async def get_user_info(message, username: str):
     try:
+        if not username:
+            username = message.author.name
+
+        if username in blacklist:
+            embed = discord.Embed(title="Blacklisted User", description=f"The user `{username}` is blacklisted and cannot be displayed.", color=discord.Color.red())
+            await message.channel.send(embed=embed)
+            return
+
         user_file_path = os.path.join(users_dir, f'{username}.json')
         if os.path.exists(user_file_path):
             with open(user_file_path, 'r', encoding='utf-8') as file:
                 user_data = json.load(file)
 
-            user_pfp = user_data[0].get('user_pfp')
+            user_pfp = user_data.get('user_pfp')
+            all_user_data = user_data.get('messages', [])
 
-            all_user_data = [msg for msg in user_data if 'message_time' in msg and msg['message_time']]
             all_user_data.sort(key=lambda x: datetime.strptime(x['message_time'], '%Y-%m-%d %H:%M:%S'))
 
             today = date.today()
@@ -44,11 +56,11 @@ async def get_user_info(ctx, username: str):
                 file.write(all_messages)
 
             file = discord.File(file_name, filename=file_name)
-            await ctx.send(file=file, embed=embed)
+            await message.channel.send(file=file, embed=embed)
             os.remove(file_name)
         else:
             embed = discord.Embed(title="Error", description="User not found or has not sent any messages yet.", color=discord.Color.red())
-            await ctx.send(embed=embed)
+            await message.channel.send(embed=embed)
     except Exception as error:
         embed = discord.Embed(title="Error", description=f"An error occurred: {error}", color=discord.Color.red())
-        await ctx.send(embed=embed)
+        await message.channel.send(embed=embed)
