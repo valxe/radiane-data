@@ -56,7 +56,9 @@ async def get_user_info(message, username: str):
                 file.write(all_messages)
 
             file = discord.File(file_name, filename=file_name)
+            
             await message.channel.send(file=file, embed=embed)
+            
             os.remove(file_name)
         else:
             embed = discord.Embed(title="Error", description="User not found or has not sent any messages yet.", color=discord.Color.red())
