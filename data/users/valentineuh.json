@@ -1,9 +1,10 @@
-[
-    {
-        "user_pfp": "https://picsum.photos/200"
-    },
-    {
-        "message_time": "2005-05-30 00:00:00",
-        "content": "Hello, World!"
-    }
-]
+{
+    "user_pfp": "https://picsum.photos/200",
+    "messages": [
+        {
+            "message_time": "2024-06-13 12:34:56",
+            "content": "Hello, world!"
+        }
+        }
+    ]
+}
