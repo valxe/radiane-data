@@ -8,7 +8,6 @@ def reformat_user_file(user_file_path):
         data = json.load(file)
 
     if not isinstance(data, list):
-        # If the file is not a list, assume it is already in the correct format
         return
 
     reformatted_data = {
@@ -18,13 +17,11 @@ def reformat_user_file(user_file_path):
 
     for entry in data:
         if 'user_pfp' in entry:
-            # Only keep the first user_pfp entry
             if not reformatted_data["user_pfp"]:
                 reformatted_data["user_pfp"] = entry["user_pfp"]
         else:
             reformatted_data["messages"].append(entry)
 
-    # If no user_pfp was found, we can set it to None or a default value
     if not reformatted_data["user_pfp"]:
         reformatted_data["user_pfp"] = None
 
