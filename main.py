@@ -1,8 +1,10 @@
 import discord
+import time
 import asyncio
 import json
 import os
 import logging
+import threading
 from commands.top import send_top
 from commands.total import send_total
 from commands.blacklist import send_blacklist, add_to_blacklist, remove_from_blacklist
@@ -40,6 +42,7 @@ class DataCache:
         self.user_data = {}
         self.top_users = self.load_top_users()
         self.total_messages = self.load_total_messages()
+        self.lock = threading.Lock()
 
     def load_total_messages(self):
         if os.path.exists(total_path):
@@ -55,27 +58,29 @@ class DataCache:
 
     def save_user_message(self, user_name, message):
         user_file = os.path.join(users_dir, f'{user_name}.json')
-
-        if os.path.exists(user_file):
-            with open(user_file, 'r') as file:
-                existing_data = json.load(file)
-        else:
-            existing_data = []
+        current_pfp = str(message.author.avatar.url) if message.author.avatar else None
 
         if user_name not in self.user_data:
+            if os.path.exists(user_file):
+                with open(user_file, 'r') as file:
+                    existing_data = json.load(file)
+            else:
+                existing_data = {
+                    "user_pfp": current_pfp,
+                    "messages": []
+                }
+
             self.user_data[user_name] = existing_data
 
-        user_pfp_saved = any('user_pfp' in msg for msg in self.user_data[user_name])
+        if current_pfp and self.user_data[user_name].get("user_pfp") != current_pfp:
+            self.user_data[user_name]["user_pfp"] = current_pfp
 
-        if not user_pfp_saved:
-            user_pfp = str(message.author.avatar.url) if message.author.avatar else None
-            self.user_data[user_name].insert(0, {"user_pfp": user_pfp})
-
-        self.user_data[user_name].append({
+        user_message = {
             'message_time': message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
             'content': message.content
-        })
-
+        }
+        self.user_data[user_name]["messages"].append(user_message)
+        
         self.update_top(user_name)
         self.total_messages += 1
 
@@ -83,38 +88,33 @@ class DataCache:
         self.top_users[user_name] = self.top_users.get(user_name, 0) + 1
         self.top_users = dict(sorted(self.top_users.items(), key=lambda item: item[1], reverse=True))
 
-    async def save_to_disk(self):
-        for user_name, messages in self.user_data.items():
-            user_file = os.path.join(users_dir, f'{user_name}.json')
-            if os.path.exists(user_file):
-                with open(user_file, 'r') as file:
-                    existing_data = json.load(file)
-                combined_data = existing_data + [msg for msg in messages if msg not in existing_data]
-            else:
-                combined_data = messages
+    def save_to_disk(self):
+        with self.lock:
+            user_data_copy = self.user_data.copy()
+            top_users_copy = self.top_users.copy()
 
-            with open(user_file, 'w') as file:
-                json.dump(combined_data, file, indent=4)
-        
-        with open(top_path, 'w') as file:
-            json.dump(self.top_users, file, indent=4)
+            for user_name, data in user_data_copy.items():
+                user_file = os.path.join(users_dir, f'{user_name}.json')
+                with open(user_file, 'w') as file:
+                    json.dump(data, file, indent=4)
 
-        with open(total_path, 'w') as file:
-            json.dump({'count': self.total_messages}, file, indent=4)
+            with open(top_path, 'w') as file:
+                json.dump(top_users_copy, file, indent=4)
 
-        self.clear_cache()
+            with open(total_path, 'w') as file:
+                json.dump({'count': self.total_messages}, file, indent=4)
+
+            self.clear_cache()
 
     def clear_cache(self):
         self.user_data = {}
         self.top_users = self.load_top_users()
         self.total_messages = self.load_total_messages()
 
-data_cache = DataCache()
-
 async def periodic_save():
     while True:
         await asyncio.sleep(20)
-        await data_cache.save_to_disk()
+        threading.Thread(target=data_cache.save_to_disk).start()
 
 def read_total():
     if os.path.exists(total_path):
@@ -135,22 +135,7 @@ class MyClient(discord.Client):
         logger.info(f'Total users: {total_users}')
         await self.change_presence(status=discord.Status.dnd)
 
-        self.loop.create_task(self.start_update_presence())
         self.loop.create_task(periodic_save())
-
-    async def start_update_presence(self):
-        while True:
-            try:
-                await self.update_presence_message()
-            except Exception as e:
-                logger.error(f"Error updating presence: {e}")
-                await asyncio.sleep(5)
-
-    async def update_presence_message(self):
-        while True:
-            new_status_message = f"{read_total()} messages saved!"
-            await self.change_presence(activity=discord.Game(new_status_message), status=discord.Status.dnd)
-            await asyncio.sleep(15)
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -164,19 +149,35 @@ class MyClient(discord.Client):
             author_username = f"{message.author.name}#{message.author.discriminator}"
             if message.author.name in blacklisted_users or author_username in blacklisted_users:
                 return
-            
-            data_cache.save_user_message(message.author.name, message)
+
+            if data_cache.lock.locked():
+                await asyncio.to_thread(self.process_message, message)
+            else:
+                await asyncio.to_thread(self.process_message, message)
         except Exception as e:
             logger.error(f"Error processing message from {message.author.name}: {e}")
 
+    def process_message(self, message):
+        data_cache.save_user_message(message.author.name, message)
+
     async def handle_command(self, message):
         command = message.content.lower().split(' ')[0]
+        valid_commands = ['!help', '!user', '!top', '!total', '!bl', '!bladd', '!blremove', '!remove', '!random']
+        
+        if command not in valid_commands:
+            return
+
+        msg = await message.reply("Processing...")
         try:
             if command == '!help':
                 await send_help_embed(message.channel)
             elif command.startswith('!user'):
-                username = message.content.split(' ', 1)[1]
-                await get_user_info(message.channel, username)
+                parts = message.content.split(' ', 1)
+                if len(parts) == 1:
+                    username = ""
+                else:
+                    username = parts[1].strip()
+                await get_user_info(message, username)
             elif command == '!top':
                 await send_top(message.channel)
             elif command == '!total':
@@ -194,7 +195,11 @@ class MyClient(discord.Client):
                 await send_random_user_info(message.channel)
         except Exception as e:
             logger.error(f"Error handling command {command}: {e}")
+            await msg.edit(content=f"Error handling command {command}")
+        else:
+            await msg.delete()
 
 if __name__ == "__main__":
+    data_cache = DataCache()
     client = MyClient(intents=intents)
     client.run(token)
