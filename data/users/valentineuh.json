@@ -1,9 +1,0 @@
-{
-    "user_pfp": "https://picsum.photos/200",
-    "messages": [
-        {
-            "message_time": "2024-06-13 12:34:56",
-            "content": "Hello, world!"
-        }
-    ]
-}
