@@ -1,12 +1,12 @@
 import json
 import os
+import sqlite3
 from typing import List
 
 data_dir = os.path.join('data')
 secret_path = os.path.join(data_dir, 'secret.json')
 blacklist_path = os.path.join(data_dir, 'blacklist.json')
-users_dir = os.path.join(data_dir, 'users')
-total_path = os.path.join(data_dir, 'total.json')
+db_path = os.path.join(data_dir, 'database.db')
 
 def load_token() -> str:
     with open(secret_path, 'r') as file:
@@ -19,10 +19,14 @@ def load_blacklist() -> List[str]:
     return []
 
 def count_users() -> int:
-    return sum(len(files) for _, _, files in os.walk(users_dir))
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        return cursor.fetchone()[0]
 
 def read_total() -> int:
-    if os.path.exists(total_path):
-        with open(total_path, 'r') as file:
-            return json.load(file).get('count', 0)
-    return 0
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT count FROM total_messages WHERE id = 1")
+        result = cursor.fetchone()
+        return result[0] if result else 0

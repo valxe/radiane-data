@@ -5,9 +5,8 @@ import threading
 from commands.top import send_top
 from commands.total import send_total
 from commands.blacklist import send_blacklist, add_to_blacklist, remove_from_blacklist
-from commands.user_info import get_user_info
+from commands.user_info import get_user_info, get_random_user_info
 from commands.help import send_help_embed
-from commands.remove import remove_user
 from data import DataCache, periodic_save
 from logic import load_token, load_blacklist, count_users, read_total
 
@@ -54,7 +53,7 @@ class MyClient(discord.Client):
 
     async def handle_command(self, message: discord.Message) -> None:
         command = message.content.lower().split(' ')[0]
-        valid_commands = ['!help', '!user', '!top', '!total', '!bl', '!bladd', '!blremove', '!remove']
+        valid_commands = ['!help', '!user', '!top', '!total', '!bl', '!bladd', '!blremove', '!remove', '!random']
         
         if command not in valid_commands:
             return
@@ -81,8 +80,9 @@ class MyClient(discord.Client):
             elif command.startswith('!blremove'):
                 await remove_from_blacklist(message)
             elif command.startswith('!remove'):
-                username = message.content.split(' ', 1)[1]
-                await remove_user(message, username)
+                await message.reply("This command has been removed since I want to keep as much data as possible.")
+            elif command == '!random':
+                await get_random_user_info(message)
         except Exception as e:
             logger.error(f"Error handling command {command}: {e}")
             await msg.edit(content=f"Error handling command {command}")
