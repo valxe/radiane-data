@@ -1,9 +1,13 @@
 import os
-import json
+import sqlite3
 import discord
+import asyncio
 from discord.ui import Button, View
 
-top_path = os.path.join('data', 'top.json')
+db_path = os.path.join('data', 'database.db')
+
+def format_number(number):
+    return "{:,}".format(number)
 
 class TopUsersView(View):
     def __init__(self, top_users, current_page=0, items_per_page=10):
@@ -23,6 +27,13 @@ class TopUsersView(View):
         next_button = Button(label='▶️', style=discord.ButtonStyle.primary)
         last_button = Button(label='⏭️', style=discord.ButtonStyle.primary)
 
+        if self.current_page == 0:
+            first_button.style = discord.ButtonStyle.grey
+            previous_button.style = discord.ButtonStyle.grey
+        if self.current_page == self.max_page:
+            next_button.style = discord.ButtonStyle.grey
+            last_button.style = discord.ButtonStyle.grey
+
         first_button.callback = self.first_page
         previous_button.callback = self.previous_page
         next_button.callback = self.next_page
@@ -33,11 +44,6 @@ class TopUsersView(View):
         self.add_item(next_button)
         self.add_item(last_button)
 
-        first_button.disabled = self.current_page == 0
-        previous_button.disabled = self.current_page == 0
-        next_button.disabled = self.current_page == self.max_page
-        last_button.disabled = self.current_page == self.max_page
-
     def get_embed(self):
         start = self.current_page * self.items_per_page
         end = start + self.items_per_page
@@ -45,13 +51,16 @@ class TopUsersView(View):
 
         embed = discord.Embed(title=f"Top Users (Page {self.current_page + 1}/{self.max_page + 1})", color=discord.Color.purple())
         for user, count in page_users:
-            embed.add_field(name=user, value=str(count), inline=False)
+            embed.add_field(name=user, value=format_number(count), inline=False)
         return embed
 
     async def update_message(self, interaction):
-        embed = self.get_embed()
-        self.update_buttons()
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            embed = self.get_embed()
+            self.update_buttons()
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.errors.InteractionResponded:
+            await interaction.edit_original_response(embed=self.get_embed(), view=self)
 
     async def first_page(self, interaction):
         self.current_page = 0
@@ -73,16 +82,19 @@ class TopUsersView(View):
 
 async def send_top(channel):
     try:
-        if os.path.exists(top_path):
-            with open(top_path, 'r') as file:
-                top_users = json.load(file)
-            sorted_top_users = sorted(top_users.items(), key=lambda item: item[1], reverse=True)
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT user_name, message_count FROM top_users")
+            top_users = cursor.fetchall()
+            if not top_users:
+                embed = discord.Embed(title="Error", description="Top users data not available.", color=discord.Color.red())
+                await channel.send(embed=embed)
+                return
+
+            sorted_top_users = sorted(top_users, key=lambda item: item[1], reverse=True)
             view = TopUsersView(sorted_top_users)
             embed = view.get_embed()
-            await channel.send(embed=embed, view=view)
-        else:
-            embed = discord.Embed(title="Error", description="Top users data not available.", color=discord.Color.red())
-            await channel.send(embed=embed)
+            message = await channel.send(embed=embed, view=view)
     except Exception as e:
         embed = discord.Embed(title="Error", description=f"An error occurred: {e}", color=discord.Color.red())
         await channel.send(embed=embed)
