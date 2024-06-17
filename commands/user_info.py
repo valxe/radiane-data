@@ -1,15 +1,25 @@
+from datetime import datetime, date
 import os
 import sqlite3
 import discord
-from datetime import datetime, date
 import random
 import json
 
 db_path = os.path.join('data', 'database.db')
 blacklist_path = os.path.join('data', 'blacklist.json')
 
+datetime_formats = ['%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%d %H:%M:%S']
+
 def format_number(number):
     return "{:,}".format(number)
+
+def parse_datetime(datetime_str):
+    for fmt in datetime_formats:
+        try:
+            return datetime.strptime(datetime_str, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Time data '{datetime_str}' does not match any of the supported formats: {datetime_formats}")
 
 async def get_user_info(message, username: str):
     try:
@@ -33,16 +43,16 @@ async def get_user_info(message, username: str):
                 user_pfp, messages = user_data
                 all_user_data = json.loads(messages)
 
-                all_user_data.sort(key=lambda x: datetime.strptime(x['message_time'], '%Y-%m-%d %H:%M:%S'))
+                all_user_data.sort(key=lambda x: parse_datetime(x['message_time']))
 
                 today = date.today()
-                today_user_data = [msg for msg in all_user_data if datetime.strptime(msg['message_time'], '%Y-%m-%d %H:%M:%S').date() == today]
+                today_user_data = [msg for msg in all_user_data if parse_datetime(msg['message_time']).date() == today]
 
                 total_messages = len(all_user_data)
                 recent_messages = all_user_data[-5:][::-1]
                 recent_str = '\n'.join([f"{msg['message_time']}: {msg.get('content', '')}" for msg in recent_messages])
 
-                embed = discord.Embed(title=f"User: {username}", description=f"Total Messages: {format_number(total_messages)}", color=discord.Color.blue())
+                embed = discord.Embed(title=f"User: {username}", description=f"Total Messages: {format_number(total_messages)}\n[Profile Picture]({user_pfp})", color=discord.Color.blue())
                 embed.add_field(name="Recent Messages", value=f"{recent_str}")
 
                 if user_pfp:
