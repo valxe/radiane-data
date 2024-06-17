@@ -7,7 +7,7 @@ from commands.total import send_total
 from commands.blacklist import send_blacklist, add_to_blacklist, remove_from_blacklist
 from commands.user_info import get_user_info, get_random_user_info
 from commands.help import send_help_embed
-from data import DataCache, periodic_save
+from data import DataCache, periodic_save, run_fastapi
 from logic import load_token, load_blacklist, count_users, read_total
 
 logging.basicConfig(level=logging.INFO)
@@ -49,7 +49,13 @@ class MyClient(discord.Client):
             logger.error(f"Error processing message from {message.author.name}: {e}")
 
     def process_message(self, message: discord.Message) -> None:
-        data_cache.save_user_message(message.author.name, message)
+        user_name = message.author.name
+        user_pfp = str(message.author.avatar.url) if message.author.avatar else None
+        message_data = {
+            'message_time': message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'content': message.content
+        }
+        data_cache.save_user_message(user_name, user_pfp, message_data)
 
     async def handle_command(self, message: discord.Message) -> None:
         command = message.content.lower().split(' ')[0]
@@ -92,4 +98,13 @@ class MyClient(discord.Client):
 if __name__ == "__main__":
     data_cache = DataCache()
     client = MyClient(intents=intents)
-    client.run(token)
+    
+    # Start the FastAPI and Discord bot in separate threads
+    fastapi_thread = threading.Thread(target=run_fastapi)
+    discord_bot_thread = threading.Thread(target=client.run, args=(token,))
+    
+    fastapi_thread.start()
+    discord_bot_thread.start()
+    
+    fastapi_thread.join()
+    discord_bot_thread.join()
