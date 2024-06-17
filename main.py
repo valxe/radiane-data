@@ -99,7 +99,6 @@ if __name__ == "__main__":
     data_cache = DataCache()
     client = MyClient(intents=intents)
     
-    # Start the FastAPI and Discord bot in separate threads
     fastapi_thread = threading.Thread(target=run_fastapi)
     discord_bot_thread = threading.Thread(target=client.run, args=(token,))
     
